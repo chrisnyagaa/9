@@ -2,6 +2,7 @@ from django.db.models import Count
 
 from sentry.api.serializers import Serializer, register
 from sentry.models.broadcast import Broadcast, BroadcastSeen
+from sentry.users.models.user import User
 
 
 @register(Broadcast)
@@ -44,13 +45,21 @@ class AdminBroadcastSerializer(BroadcastSerializer):
             .annotate(user_count=Count("broadcast"))
             .values_list("broadcast", "user_count")
         )
+        created_by_ids = {item.created_by_id for item in item_list if item.created_by_id}
+        users = {
+            user.id: user.email
+            for user in User.objects.filter(id__in=created_by_ids)
+        }
 
-        for item in attrs:
-            attrs[item]["user_count"] = counts.get(item.id, 0)
+        for item in item_list:
+            attrs.setdefault(item, {})["user_count"] = counts.get(item.id, 0)
+            if item.created_by_id:
+                attrs[item]["created_by"] = users.get(item.created_by_id)
+
         return attrs
 
     def serialize(self, obj, attrs, user, **kwargs):
         context = super().serialize(obj, attrs, user)
         context["userCount"] = attrs["user_count"]
-        context["createdBy"] = obj.created_by_id.id if obj.created_by_id else None
+        context["createdBy"] = attrs.get("created_by")
         return context
